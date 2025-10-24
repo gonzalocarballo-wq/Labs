@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { concat, toBeHex, ethers, zeroPadBytes, AbiCoder } from "ethers";
-import { authenticate, callSmartContract, TransactionResult,deposit, withdraw, isWebView } from "@lemoncash/mini-app-sdk";
+import { authenticate, callSmartContract, TransactionResult, deposit, withdraw, isWebView, ChainId } from "@lemoncash/mini-app-sdk";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wallet } from "lucide-react";
 /* ===========================
    Tipos
 =========================== */
+
 interface Token {
   name: string;
   symbol: string;
@@ -134,16 +135,16 @@ function WalletDrawer({
   isOpen: boolean;
   onClose: () => void;
   balances: any;
-  onDeposit: () => void;
+  onDeposit: (token: string, amount: string) => void;
   onWithdraw: () => void;
 }) {
-  // 🧮 Calcular total estimado (placeholder hasta que lleguen precios reales)
-  const estimatedTotalUSD = Object.values(balances || {}).reduce((acc: number, b: any) => {
-    const val = parseFloat(b?.formatted || "0");
-    // Simulación temporal: multiplicamos por un precio estimado (luego se reemplaza con API real)
-    const mockPrice = 1; // <- Cambiar por datos reales pronto
-    return acc + val * mockPrice;
-  }, 0);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositToken, setDepositToken] = useState("USDC"); // 👈 default
+
+  const estimatedTotalUSD = Object.values(balances || {}).reduce(
+    (acc: number, b: any) => acc + parseFloat(b?.formatted || "0"),
+    0
+  );
 
   return (
     <AnimatePresence>
@@ -184,20 +185,23 @@ function WalletDrawer({
                 <h3 className="text-3xl font-bold text-[#E8F6EF]">
                   ${estimatedTotalUSD.toFixed(2)} USD
                 </h3>
-                <p className="text-xs text-[#A5BDB4] mt-2">(estimado, sin precios reales aún)</p>
               </div>
 
               {/* Balances */}
-              <div className="space-y-3 overflow-y-auto max-h-[60vh]">
+              <div className="space-y-3 overflow-y-auto max-h-[40vh] mb-6">
                 {Object.entries(balances || {}).length === 0 ? (
-                  <p className="text-[#A5BDB4] text-sm text-center">Sin balances disponibles</p>
+                  <p className="text-[#A5BDB4] text-sm text-center">
+                    Sin balances disponibles
+                  </p>
                 ) : (
                   Object.entries(balances || {}).map(([symbol, b]: any) => (
                     <div
                       key={symbol}
                       className="flex items-center justify-between bg-[#151A18] border border-[#1F2926] rounded-xl px-4 py-3"
                     >
-                      <span className="text-[#E8F6EF] font-semibold">{symbol}</span>
+                      <span className="text-[#E8F6EF] font-semibold">
+                        {symbol}
+                      </span>
                       <span className="text-[#A5BDB4] font-mono text-sm">
                         {b.formatted ?? "—"}
                       </span>
@@ -205,13 +209,45 @@ function WalletDrawer({
                   ))
                 )}
               </div>
+
+              {/* NUEVO BLOQUE: depósito manual */}
+              <div className="bg-[#151A18] border border-[#1F2926] rounded-3xl p-4 mb-6">
+                <h3 className="text-[#E8F6EF] font-semibold mb-3">
+                  Depósito manual
+                </h3>
+
+                {/* Input de monto */}
+                <input
+                  type="number"
+                  step="any"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  placeholder="Monto a depositar"
+                  className="w-full px-4 py-3 mb-3 bg-[#101412] text-[#E8F6EF] rounded-xl border border-[#1F2926] focus:outline-none focus:ring-2 focus:ring-[#00FF9D]"
+                />
+
+                {/* Selector de token (solo USDC o POL) */}
+                <select
+                  value={depositToken}
+                  onChange={(e) => setDepositToken(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#101412] text-[#E8F6EF] rounded-xl border border-[#1F2926] focus:outline-none focus:ring-2 focus:ring-[#00FF9D]"
+                >
+                  <option value="USDC">USDC</option>
+                  <option value="POL">POL</option>
+                </select>
+              </div>
             </div>
 
             {/* Acciones */}
-            <div className="flex flex-col gap-4 mt-6">
+            <div className="flex flex-col gap-4">
               <button
-                onClick={onDeposit}
-                className="bg-[#00FF9D] hover:bg-[#29FFB4] text-black font-semibold py-3 rounded-3xl transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]"
+                onClick={() => onDeposit(depositToken, depositAmount)}
+                disabled={!depositAmount || parseFloat(depositAmount) <= 0}
+                className={`${
+                  !depositAmount || parseFloat(depositAmount) <= 0
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                } bg-[#00FF9D] hover:bg-[#29FFB4] text-black font-semibold py-3 rounded-3xl transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]`}
               >
                 Deposit
               </button>
@@ -230,9 +266,29 @@ function WalletDrawer({
 }
 
 
+
 /* ===========================
    COMPONENTE PRINCIPAL
 =========================== */
+
+// 🧩 Función para resolver claves de balance
+function balanceKeyFor(token: { address: string; symbol: string }) {
+  const a = (token.address || "").toLowerCase();
+
+  // 🔹 Nativo POL/MATIC
+  if (a === "native" || a === "0x0000000000000000000000000000000000001010") {
+    return "POL"; // el backend guarda el nativo como POL
+  }
+
+  // 🔹 WMATIC (token ERC-20)
+  if (a === "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270") {
+    return "WMATIC";
+  }
+
+  // 🔹 Por defecto, usar el símbolo tal cual
+  return token.symbol;
+}
+
 export default function LemmyDexPanel() {
   const [sellToken, setSellToken] = useState<Token>({
     symbol: "USDC.e",
@@ -250,7 +306,7 @@ export default function LemmyDexPanel() {
     decimals: 18,
   });
 
-  const [amount, setAmount] = useState("0.1");
+  const [amount, setAmount] = useState("");
   const [balances, setBalances] = useState<Balances>({});
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
@@ -260,30 +316,63 @@ export default function LemmyDexPanel() {
   const [txHash, setTxHash] = useState<string>();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [needsApproval, setNeedsApproval] = useState(false);
+  const [approved, setApproved] = useState(false);
 
   async function fetchBalances() {
     try {
-      
+      if (!wallet) return {};
   
-      // 🔹 Envía la dirección al backend
+      const tokensToCheck = [
+        "native", // POL
+        sellToken.address,
+        buyToken.address,
+      ];
+  
+      // Mostramos visualmente qué está por hacer
+      alert("📤 Enviando request a /api/balances con: " + JSON.stringify({
+        wallet,
+        tokensToCheck
+      }));
+  
       const res = await fetch("/api/balances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallet }),
+        body: JSON.stringify({ wallet, tokens: tokensToCheck }),
       });
   
       const data = await res.json();
-      if (!data.ok) return {};
+      alert("📥 Respuesta de /api/balances: " + JSON.stringify(data));
+  
+      if (!data.ok) throw new Error(data.error || "Error en balances");
       return data.balances || {};
-    } catch (err) {
-      console.error("Error obteniendo balances:", err);
+    } catch (err: any) {
+      alert("❌ Error en fetchBalances: " + err.message);
       return {};
     }
   }
+  
+  
+  
 
   useEffect(() => {
-    fetchBalances().then((bals) => setBalances(bals));
-  }, []);
+    if (!wallet) {
+      console.log("⏳ Esperando wallet...");
+      return;
+    }
+  
+    (async () => {
+      console.log("🔍 Ejecutando fetchBalances con wallet:", wallet);
+      const bals = await fetchBalances();
+      console.log("💰 Balances seteados en estado:", bals);
+      setBalances(bals);
+    })();
+  }, [wallet]); // solo depende de wallet
+  
+  
+  // Reset approval state when token or amount changes
+  useEffect(() => {
+    setApproved(false);
+  }, [sellToken, amount]);
 
   // ✅ Quote con MetaMask como taker
   async function getQuote() {
@@ -294,7 +383,9 @@ export default function LemmyDexPanel() {
       //if (!window.ethereum) throw new Error("MetaMask no detectado");
       //const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
       //const swapper = accounts[0];
-      const swapper = "0x48C27F7548cEE894b06c11F380130A1C05129949";
+      if (!wallet) throw new Error("Wallet no autenticada");
+const swapper = wallet;
+
   
       const payload = {
         sellToken: sellToken.address,
@@ -319,9 +410,12 @@ export default function LemmyDexPanel() {
   
       // Guarda TODO el objeto quote (trae quoteId que usará /api/swap)
       setQuote(data.quote);
-  
+
       // Muestra el estimado
       setFormattedAmountOut(data.formattedAmountOut || "0");
+
+      // Reset approval state when getting new quote
+      setApproved(false);
 
       // Verificar si necesita approval
       try {
@@ -353,6 +447,49 @@ export default function LemmyDexPanel() {
       setLoading(false);
     }
   }
+
+  // ✅ Check approval function
+  const checkApproval = async () => {
+    try {
+      if (!wallet) throw new Error("Wallet no autenticada");
+const swapper = wallet;
+      const amountInBaseUnits = ethers.parseUnits(amount, sellToken.decimals).toString();
+      
+      const res = await fetch("/api/check-or-approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: swapper,
+          token: sellToken.address,
+          amount: amountInBaseUnits,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.ok && data.approved) {
+        console.log("✅ Token ya aprobado");
+        setApproved(true);
+      } else if (data.ok && data.tx) {
+        console.log("🟡 Falta aprobar, generando tx:", data.tx);
+
+        // Si estás usando Safe o relayer, ejecutá esta transacción:
+        await callSmartContract({
+          contractAddress: data.tx.to,
+          functionName: "approve",
+          functionParams: [data.tx.data],
+          value: data.tx.value,
+          chainId: 137,
+        });
+
+        setApproved(true);
+      } else {
+        console.error("❌ Error en check-or-approve:", data.error);
+      }
+    } catch (err) {
+      console.error("❌ Error ejecutando checkApproval:", err);
+    }
+  };
   
   // ✅ Ejecutar swap con MetaMask directamente
   // === Ejecutar swap con MetaMask ===
@@ -419,7 +556,7 @@ async function executeSwap() {
 }
 
 
-async function handleDeposit() {
+async function handleDeposit(token: string, amount: string) {
   try {
     if (!isWebView()) {
       alert("⚠️ Deposit only works inside Lemon app");
@@ -428,9 +565,14 @@ async function handleDeposit() {
 
     if (!wallet) throw new Error("Wallet not authenticated");
 
+    if (!amount || parseFloat(amount) <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+
     const result = await deposit({
-      amount, // usa el valor del input actual
-      tokenName: sellToken.symbol.replace(".e", "") as any, // Ej: "USDC.e" → "USDC"
+      amount,
+      tokenName: token as any, // "USDC" o "POL"
     });
 
     if (result.result === TransactionResult.SUCCESS) {
@@ -448,6 +590,7 @@ async function handleDeposit() {
     alert(`Deposit error: ${err.message}`);
   }
 }
+
 
 async function handleWithdraw() {
   try {
@@ -516,12 +659,14 @@ async function handleApproval() {
   
   
  
+
   const authenticateWallet = useCallback(async () => {
     try {
-      const result = await authenticate();
+      const result = await authenticate({ chainId: ChainId.POLYGON });
 
       if (result.result === TransactionResult.SUCCESS) {
         setWallet(result.data.wallet);
+        console.log("✅ Lemon SDK auth on POLYGON (137). Wallet:", result.data.wallet);
       } else if (result.result === TransactionResult.FAILED) {
         throw new Error(result.error.message || "Authentication failed");
       } else {
@@ -538,6 +683,7 @@ async function handleApproval() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   
 
   
@@ -567,6 +713,18 @@ async function handleApproval() {
       <p className="text-sm text-[#4BD897] mb-8">
         Powered by Lemon Teso Crypto & Uniswap Trade API
       </p>
+
+      <div className="text-xs text-[#A5BDB4] mb-4 bg-[#151A18] border border-[#1F2926] rounded-xl p-3">
+        <p>Wallet: {wallet ?? "undefined"}</p>
+        <p>
+          Balances:{" "}
+          {balances
+            ? Object.keys(balances).length > 0
+              ? Object.keys(balances).join(", ")
+              : "vacío"
+            : "sin datos"}
+        </p>
+      </div>
   
       <p className="text-xs text-[#A5BDB4] mb-2">{wallet}</p>
       <p className="text-xs text-[#A5BDB4] mb-8">{txHash}</p>
@@ -586,7 +744,7 @@ async function handleApproval() {
             <TokenSelector selected={sellToken} onSelect={setSellToken} />
           </div>
           <p className="text-right text-xs text-[#A5BDB4] mt-2">
-            Balance: {formatAmt(balances[sellToken.symbol]?.formatted)}
+            Balance: {formatAmt(balances[balanceKeyFor(sellToken)]?.formatted)}
           </p>
         </div>
   
@@ -645,22 +803,26 @@ async function handleApproval() {
             <TokenSelector selected={buyToken} onSelect={setBuyToken} />
           </div>
           <p className="text-right text-xs text-[#A5BDB4] mt-2">
-            Balance: {formatAmt(balances[buyToken.symbol]?.formatted)}
+            Balance: {formatAmt(balances[balanceKeyFor(buyToken)]?.formatted)}
           </p>
         </div>
   
-        {/* BOTÓN EXECUTE SWAP */}
-        <button
-          onClick={executeSwap}
-          disabled={!quote}
-          className={`${
-            quote
-              ? "bg-[#00FF9D] hover:bg-[#29FFB4] hover:shadow-[0_4px_20px_rgba(0,255,157,0.2)] text-black"
-              : "bg-[#151A18] text-[#A5BDB4] cursor-not-allowed border border-[#1F2926]"
-          } font-semibold rounded-3xl py-4 text-lg transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]`}
-        >
-          {quote ? "Execute Swap" : "Get quote first"}
-        </button>
+        {/* BOTÓN CONDICIONAL: APPROVE O EXECUTE SWAP */}
+        {!approved ? (
+          <button
+            onClick={checkApproval}
+            className="w-full bg-yellow-500 hover:bg-yellow-600 text-black py-2 px-4 rounded-xl font-semibold"
+          >
+            Approve Token
+          </button>
+        ) : (
+          <button
+            onClick={executeSwap}
+            className="w-full bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-xl font-semibold"
+          >
+            Execute Swap
+          </button>
+        )}
   
         {/* ERRORES */}
         {error && (
@@ -672,6 +834,78 @@ async function handleApproval() {
         )}
       </div>
   
+      {/* 🔹 Debug de balances */}
+      {wallet && (
+        <div className="w-full max-w-md bg-[#151A18] border border-[#1F2926] rounded-xl p-4 mt-6">
+          <p className="text-[#4BD897] text-sm font-semibold mb-2">
+            Debug de Balances (visible solo para diagnóstico)
+          </p>
+
+          {/* Wallet visible */}
+          <p className="text-xs text-[#A5BDB4] break-words mb-2">
+            Wallet: {wallet}
+          </p>
+
+          {/* JSON de balances */}
+          <pre className="text-[#E8F6EF] text-[10px] whitespace-pre-wrap break-words bg-[#101412] p-2 rounded-xl max-h-[200px] overflow-y-auto">
+            {JSON.stringify(balances, null, 2)}
+          </pre>
+
+          {/* Botón manual para volver a ejecutar fetchBalances */}
+          <button
+            onClick={async () => {
+              const b = await fetchBalances();
+              setBalances(b);
+            }}
+            className="mt-2 bg-[#00FF9D] text-black px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#29FFB4] transition-all duration-200"
+          >
+            🔄 Refrescar balances
+          </button>
+        </div>
+      )}
+
+      {/* 🔹 Debug de /api/balances */}
+      {wallet && (
+        <div className="w-full max-w-md bg-[#151A18] border border-[#1F2926] rounded-xl p-4 mt-6">
+          <p className="text-[#4BD897] text-sm font-semibold mb-2">
+            Debug de /api/balances
+          </p>
+
+          {/* Wallet */}
+          <p className="text-xs text-[#A5BDB4] mb-1">
+            Wallet: {wallet}
+          </p>
+
+          {/* Tokens enviados */}
+          <p className="text-xs text-[#A5BDB4] mb-1">
+            Tokens enviados:{" "}
+            {JSON.stringify([
+              "native",
+              sellToken.address,
+              buyToken.address,
+            ])}
+          </p>
+
+          {/* Respuesta completa del backend */}
+          <pre className="text-[10px] text-[#E8F6EF] whitespace-pre-wrap bg-[#101412] p-2 rounded-xl max-h-[250px] overflow-y-auto">
+            {balances && Object.keys(balances).length > 0
+              ? JSON.stringify(balances, null, 2)
+              : "🕳️ El backend respondió vacío ({}) o no se pudo leer ningún balance."}
+          </pre>
+
+          {/* Botón para volver a pedir balances manualmente */}
+          <button
+            onClick={async () => {
+              const b = await fetchBalances();
+              setBalances(b);
+            }}
+            className="mt-2 bg-[#00FF9D] text-black px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#29FFB4] transition-all duration-200"
+          >
+            🔄 Volver a consultar balances
+          </button>
+        </div>
+      )}
+
       {/* 🔹 Drawer lateral (panel desplegable) */}
       <WalletDrawer
         isOpen={drawerOpen}
@@ -679,6 +913,7 @@ async function handleApproval() {
         balances={balances}
         onDeposit={handleDeposit}
         onWithdraw={handleWithdraw}
+        
       />
     </main>
   );

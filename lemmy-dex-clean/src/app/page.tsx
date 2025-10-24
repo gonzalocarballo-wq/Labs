@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { concat, toBeHex, ethers, zeroPadBytes, AbiCoder } from "ethers";
-import { authenticate, callSmartContract, TransactionResult } from "@lemoncash/mini-app-sdk";
-
+import { authenticate, callSmartContract, TransactionResult,deposit, withdraw, isWebView } from "@lemoncash/mini-app-sdk";
+import { motion, AnimatePresence } from "framer-motion";
+import { Wallet } from "lucide-react";
 /* ===========================
    Tipos
 =========================== */
@@ -62,22 +63,22 @@ function TokenSelector({
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="flex items-center gap-2 bg-[#0D1212] border border-lime-700 rounded-xl px-3 py-2 hover:bg-[#121a12] transition-colors"
+        className="flex items-center gap-3 bg-[#151A18] border border-[#1F2926] rounded-xl px-4 py-3 hover:bg-[#1A1F1D] transition-all duration-200"
       >
-        <img src={selected.logo} className="w-5 h-5 rounded-full" alt="" />
-        <span className="text-lime-200 font-bold">{selected.symbol}</span>
+        <img src={selected.logo} className="w-6 h-6 rounded-full" alt="" />
+        <span className="text-[#E8F6EF] font-semibold">{selected.symbol}</span>
       </button>
 
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={() => setIsOpen(false)}
         >
           <div
-            className="bg-[#141A14] border border-lime-600 rounded-2xl shadow-2xl w-[400px] max-h-[500px] p-4 flex flex-col"
+            className="bg-[#101412] border border-[#1F2926] rounded-3xl shadow-[0_4px_20px_rgba(0,255,157,0.1)] w-[420px] max-h-[600px] p-6 flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-bold text-lime-300 mb-3">
+            <h2 className="text-xl font-bold text-[#E8F6EF] mb-4">
               Seleccionar token
             </h2>
             <input
@@ -85,9 +86,9 @@ function TokenSelector({
               placeholder="Buscar token..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full mb-3 px-3 py-2 bg-[#1A211A] text-lime-300 rounded-xl border border-lime-700 focus:outline-none"
+              className="w-full mb-4 px-4 py-3 bg-[#151A18] text-[#E8F6EF] rounded-xl border border-[#1F2926] focus:outline-none focus:ring-2 focus:ring-[#00FF9D] placeholder-[#A5BDB4]"
             />
-            <div className="flex-1 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-[#1a2b1a]">
+            <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-[#1F2926]">
               {filtered.map((t) => (
                 <div
                   key={t.address}
@@ -95,22 +96,22 @@ function TokenSelector({
                     onSelect(t);
                     setIsOpen(false);
                   }}
-                  className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-[#1A211A] rounded-xl cursor-pointer transition-colors"
+                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[#151A18] rounded-xl cursor-pointer transition-all duration-200 border border-transparent hover:border-[#1F2926]"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     <img
                       src={t.logo}
-                      className="w-8 h-8 rounded-full"
+                      className="w-10 h-10 rounded-full"
                       alt={t.symbol}
                     />
                     <div className="flex flex-col">
-                      <span className="text-lime-100 font-semibold text-sm">
+                      <span className="text-[#E8F6EF] font-semibold text-sm">
                         {t.name}
                       </span>
-                      <span className="text-xs text-lime-500">{t.symbol}</span>
+                      <span className="text-xs text-[#A5BDB4]">{t.symbol}</span>
                     </div>
                   </div>
-                  <span className="text-xs text-lime-600">
+                  <span className="text-xs text-[#A5BDB4] font-mono">
                     {t.address.slice(0, 6)}...{t.address.slice(-4)}
                   </span>
                 </div>
@@ -122,6 +123,112 @@ function TokenSelector({
     </>
   );
 }
+// componente para el drawer de la wallet
+function WalletDrawer({
+  isOpen,
+  onClose,
+  balances,
+  onDeposit,
+  onWithdraw,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  balances: any;
+  onDeposit: () => void;
+  onWithdraw: () => void;
+}) {
+  // 🧮 Calcular total estimado (placeholder hasta que lleguen precios reales)
+  const estimatedTotalUSD = Object.values(balances || {}).reduce((acc: number, b: any) => {
+    const val = parseFloat(b?.formatted || "0");
+    // Simulación temporal: multiplicamos por un precio estimado (luego se reemplaza con API real)
+    const mockPrice = 1; // <- Cambiar por datos reales pronto
+    return acc + val * mockPrice;
+  }, 0);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Fondo oscuro */}
+          <motion.div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            onClick={onClose}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+
+          {/* Panel lateral */}
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 220, damping: 25 }}
+            className="fixed top-0 right-0 w-80 h-full bg-[#101412] border-l border-[#1F2926] shadow-[0_4px_20px_rgba(0,255,157,0.1)] p-6 flex flex-col justify-between z-50"
+          >
+            <div>
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#E8F6EF]">Wallet</h2>
+                <button
+                  onClick={onClose}
+                  className="text-[#A5BDB4] hover:text-[#E8F6EF] transition-colors text-xl"
+                >
+                  ✖
+                </button>
+              </div>
+
+              {/* Total estimado */}
+              <div className="bg-[#151A18] border border-[#1F2926] rounded-3xl p-6 mb-6 text-center">
+                <p className="text-sm text-[#4BD897] mb-2">Total estimado</p>
+                <h3 className="text-3xl font-bold text-[#E8F6EF]">
+                  ${estimatedTotalUSD.toFixed(2)} USD
+                </h3>
+                <p className="text-xs text-[#A5BDB4] mt-2">(estimado, sin precios reales aún)</p>
+              </div>
+
+              {/* Balances */}
+              <div className="space-y-3 overflow-y-auto max-h-[60vh]">
+                {Object.entries(balances || {}).length === 0 ? (
+                  <p className="text-[#A5BDB4] text-sm text-center">Sin balances disponibles</p>
+                ) : (
+                  Object.entries(balances || {}).map(([symbol, b]: any) => (
+                    <div
+                      key={symbol}
+                      className="flex items-center justify-between bg-[#151A18] border border-[#1F2926] rounded-xl px-4 py-3"
+                    >
+                      <span className="text-[#E8F6EF] font-semibold">{symbol}</span>
+                      <span className="text-[#A5BDB4] font-mono text-sm">
+                        {b.formatted ?? "—"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div className="flex flex-col gap-4 mt-6">
+              <button
+                onClick={onDeposit}
+                className="bg-[#00FF9D] hover:bg-[#29FFB4] text-black font-semibold py-3 rounded-3xl transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]"
+              >
+                Deposit
+              </button>
+              <button
+                onClick={onWithdraw}
+                className="bg-[#00D48F] hover:bg-[#1AF7A8] text-black font-semibold py-3 rounded-3xl transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]"
+              >
+                Withdraw
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
 
 /* ===========================
    COMPONENTE PRINCIPAL
@@ -151,6 +258,9 @@ export default function LemmyDexPanel() {
   const [formattedAmountOut, setFormattedAmountOut] = useState("");
   const [wallet, setWallet] = useState<string>();
   const [txHash, setTxHash] = useState<string>();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [needsApproval, setNeedsApproval] = useState(false);
+
   async function fetchBalances() {
     try {
       
@@ -212,6 +322,30 @@ export default function LemmyDexPanel() {
   
       // Muestra el estimado
       setFormattedAmountOut(data.formattedAmountOut || "0");
+
+      // Verificar si necesita approval
+      try {
+        const approvalRes = await fetch("/api/approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletAddress: wallet,
+            token: sellToken.address,
+            chainId: 137,
+            amount: ethers.parseUnits(amount, sellToken.decimals).toString(),
+            includeGasInfo: true
+          })
+        });
+        const approvalData = await approvalRes.json();
+        if (approvalData.ok && approvalData.approval) {
+          setNeedsApproval(true);
+        } else {
+          setNeedsApproval(false);
+        }
+      } catch (approvalErr) {
+        console.error("❌ Approval check error:", approvalErr);
+        setNeedsApproval(false);
+      }
     } catch (err: any) {
       console.error("❌ Quote error:", err);
       setError(err.message);
@@ -229,60 +363,152 @@ export default function LemmyDexPanel() {
 async function executeSwap() {
   try {
     if (!quote) throw new Error("No hay quote válido. Obtené un quote primero.");
+    if (!wallet) throw new Error("Wallet no autenticada.");
 
-    
+    // 🚀 Convertimos el amount del input a base units según los decimales del token de venta
+    const amountIn = ethers.parseUnits(amount, sellToken.decimals);
 
-   
+    // 💡 Por ahora usamos un mínimo de salida estimado al 98% del quote (2% de slippage)
+    const minAmountOut = quote.formattedAmountOut
+      ? ethers.parseUnits(
+          (Number(quote.formattedAmountOut) * 0.98).toString(),
+          buyToken.decimals
+        )
+      : BigInt(0);
 
-    
-    //const sentTx = await signer.sendTransaction(txRequest);
-    const amountIn = ethers.parseUnits("0.01", 18); // por ejemplo 1 WETH
-const minAmountOut = ethers.parseUnits("0.0000005", 18); // por ejemplo mínimo 0.5 WPOL como tolerancia
+    // ⚙️ Comando universal de swap V2 exact in
+    const Commands = {
+      V2_SWAP_EXACT_IN: 0x08,
+    };
 
-// — Construí el comando para V2 exact in swap:
-const Commands = {
-  V2_SWAP_EXACT_IN: 0x08
-};
+    const abi = new AbiCoder();
+    const input = abi.encode(
+      ["address", "address", "uint256", "uint256", "address"],
+      [sellToken.address, buyToken.address, amountIn, minAmountOut, wallet]
+    );
 
-// Encoded "commands" bytes:
+    const commands = [concat([zeroPadBytes(toBeHex(Commands.V2_SWAP_EXACT_IN), 1)])];
+    const inputs = [input];
 
+    // ⏰ Deadline de 10 minutos
+    const deadline = Math.floor(Date.now() / 1000) + 600;
 
-// Encode single byte command (V2 swap)
-const commands = [concat([zeroPadBytes(toBeHex(Commands.V2_SWAP_EXACT_IN), 1)])];
-
-// Encoded "inputs" para el comando:
-// Según docs: para V2_SWAP_EXACT_IN el esquema es: (address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, address recipient)
-const tokenIn = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
-const tokenOut = "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619";
-
-// === Input encoding ===
-const abi = new AbiCoder();
-const input = abi.encode(
-  ["address", "address", "uint256", "uint256", "address"],
-  [tokenIn, tokenOut, amountIn, minAmountOut, wallet]
-);
-const inputs = [input];
-
-
-// Deadline (timestamp UNIX):
-const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hora    
-const result = await callSmartContract({
-      contractAddress: "0xec7BE89e9d109e7e3Fec59c222CF297125FEFda2",
+    // 🚀 Ejecutamos el smart contract desde la Lemon wallet
+    const result = await callSmartContract({
+      contractAddress: "0xec7BE89e9d109e7e3Fec59c222CF297125FEFda2", // Universal Router Polygon
       functionName: "execute",
       functionParams: [commands, inputs],
       value: "0",
       chainId: 137,
     });
+
     if (result.result === TransactionResult.SUCCESS) {
       setTxHash(result.data.txHash);
+      alert(`✅ Swap ejecutado correctamente: ${result.data.txHash}`);
+      const bals = await fetchBalances();
+      setBalances(bals);
     } else if (result.result === TransactionResult.FAILED) {
-      throw new Error(result.error.message || "Authentication failed");
+      throw new Error(result.error.message || "Swap fallido");
     } else {
-      throw new Error("Authentication cancelled");
+      throw new Error("Swap cancelado por el usuario");
     }
   } catch (err: any) {
     console.error("❌ Error ejecutando swap:", err);
     alert(`Error: ${err.message}`);
+  }
+}
+
+
+async function handleDeposit() {
+  try {
+    if (!isWebView()) {
+      alert("⚠️ Deposit only works inside Lemon app");
+      return;
+    }
+
+    if (!wallet) throw new Error("Wallet not authenticated");
+
+    const result = await deposit({
+      amount, // usa el valor del input actual
+      tokenName: sellToken.symbol.replace(".e", "") as any, // Ej: "USDC.e" → "USDC"
+    });
+
+    if (result.result === TransactionResult.SUCCESS) {
+      setTxHash(result.data.txHash);
+      alert(`✅ Deposit success: ${result.data.txHash}`);
+      const bals = await fetchBalances();
+      setBalances(bals);
+    } else if (result.result === TransactionResult.FAILED) {
+      throw new Error(result.error.message || "Deposit failed");
+    } else {
+      throw new Error("Deposit cancelled");
+    }
+  } catch (err: any) {
+    console.error("❌ Error in deposit:", err);
+    alert(`Deposit error: ${err.message}`);
+  }
+}
+
+async function handleWithdraw() {
+  try {
+    if (!isWebView()) {
+      alert("⚠️ Withdraw only works inside Lemon app");
+      return;
+    }
+
+    if (!wallet) throw new Error("Wallet not authenticated");
+
+    const result = await withdraw({
+      amount,
+      tokenName: sellToken.symbol.replace(".e", "") as any, // mismo token de venta
+    });
+
+    if (result.result === TransactionResult.SUCCESS) {
+      setTxHash(result.data.txHash);
+      alert(`✅ Withdraw success: ${result.data.txHash}`);
+      const bals = await fetchBalances();
+      setBalances(bals);
+    } else if (result.result === TransactionResult.FAILED) {
+      throw new Error(result.error.message || "Withdraw failed");
+    } else {
+      throw new Error("Withdraw cancelled");
+    }
+  } catch (err: any) {
+    console.error("❌ Error in withdraw:", err);
+    alert(`Withdraw error: ${err.message}`);
+  }
+}
+
+async function handleApproval() {
+  try {
+    const res = await fetch("/api/approval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: wallet,
+        token: sellToken.address,
+        chainId: 137,
+        amount: ethers.parseUnits(amount, sellToken.decimals).toString(),
+        includeGasInfo: true
+      })
+    });
+    const data = await res.json();
+    if (data.ok && data.approval) {
+      await callSmartContract({
+        contractAddress: data.approval.to,
+        functionName: "approve",
+        functionParams: [data.approval.spender, data.approval.amount],
+        chainId: 137
+      });
+      alert("✅ Token approved!");
+      setNeedsApproval(false);
+    } else {
+      alert("✅ Token already approved!");
+      setNeedsApproval(false);
+    }
+  } catch (err: any) {
+    console.error("❌ Error in approval:", err);
+    alert(`Approval error: ${err.message}`);
   }
 }
 
@@ -324,64 +550,90 @@ const result = await callSmartContract({
     return n.toFixed(6).replace(/\.?0+$/, "");
   }
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-[#0D1212] text-lime-400 p-8">
-      <h1 className="text-3xl font-bold mb-1">🍋 Lemmy DEX — MetaMask Panel</h1>
-      <p className="text-sm text-lime-500 mb-8">
-        Powered by Lemon & Uniswap Trade API
-        </p>
-      <p className="text-sm text-lime-500 mb-8">
-      {wallet}
+    <main className="min-h-screen flex flex-col items-center justify-center bg-[#0A0E0D] text-[#E8F6EF] p-8">
+      {/* 🔹 Botón para abrir el panel lateral */}
+      <div className="w-full flex justify-end mb-6">
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="flex items-center gap-3 bg-[#101412] border border-[#1F2926] rounded-3xl px-4 py-3 hover:bg-[#151A18] transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]"
+        >
+          <Wallet className="w-5 h-5 text-[#4BD897]" />
+          <span className="text-[#E8F6EF] font-semibold">Wallet</span>
+        </button>
+      </div>
+  
+      {/* 🔹 Título principal */}
+      <h1 className="text-4xl font-bold mb-2 text-[#00FF9D]">🍋 Lemmy DEX</h1>
+      <p className="text-sm text-[#4BD897] mb-8">
+        Powered by Lemon Teso Crypto & Uniswap Trade API
       </p>
-      <p className="text-sm text-lime-500 mb-8">
-      {txHash}
-      </p>
-      <div className="w-full max-w-md bg-[#141A14] border border-lime-600 rounded-2xl shadow-xl p-6 flex flex-col gap-6">
+  
+      <p className="text-xs text-[#A5BDB4] mb-2">{wallet}</p>
+      <p className="text-xs text-[#A5BDB4] mb-8">{txHash}</p>
+  
+      {/* 🔹 Card principal del swap */}
+      <div className="w-full max-w-md bg-[#101412] border border-[#1F2926] rounded-3xl shadow-[0_4px_20px_rgba(0,255,157,0.1)] p-8 flex flex-col gap-8">
         {/* VENDER */}
         <div>
-          <label className="text-sm text-lime-500 mb-1 block">Vender</label>
-          <div className="flex items-center justify-between bg-[#1A211A] border border-lime-700 rounded-xl px-3 py-2">
+          <label className="text-sm text-[#4BD897] mb-2 block font-semibold">Vender</label>
+          <div className="flex items-center justify-between bg-[#151A18] border border-[#1F2926] rounded-xl px-4 py-3">
             <input
-              className="bg-transparent text-lime-100 text-3xl font-bold w-28 focus:outline-none"
+              className="bg-transparent text-[#E8F6EF] text-3xl font-bold w-32 focus:outline-none placeholder-[#A5BDB4]"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.0"
             />
             <TokenSelector selected={sellToken} onSelect={setSellToken} />
           </div>
-          <p className="text-right text-xs text-lime-500 mt-1">
+          <p className="text-right text-xs text-[#A5BDB4] mt-2">
             Balance: {formatAmt(balances[sellToken.symbol]?.formatted)}
           </p>
         </div>
-
+  
         {/* BOTÓN GET QUOTE */}
         <button
           onClick={getQuote}
           disabled={loading}
           className={`${
-            loading ? "bg-lime-700" : "bg-lime-500 hover:bg-lime-400"
-          } text-black font-bold rounded-xl py-3 text-lg transition-colors`}
+            loading 
+              ? "bg-[#00D48F] opacity-70 cursor-not-allowed" 
+              : "bg-[#00FF9D] hover:bg-[#29FFB4] hover:shadow-[0_4px_20px_rgba(0,255,157,0.2)]"
+          } text-black font-semibold rounded-3xl py-4 text-lg transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]`}
         >
           {loading ? "Obteniendo quote..." : "Get Quote"}
         </button>
 
         {/* RESULTADO DEL QUOTE */}
         {formattedAmountOut && (
-          <p className="text-center text-lime-400 text-sm">
-            You will receive approximately{" "}
-            <span className="font-bold text-lime-200">
-              {formattedAmountOut && !isNaN(Number(formattedAmountOut))
-                ? Number(formattedAmountOut).toFixed(6)
-                : "—"}{" "}
-              {buyToken.symbol}
-            </span>
-          </p>
+          <div className="bg-[#151A18] border border-[#1F2926] rounded-xl p-4">
+            <p className="text-center text-[#A5BDB4] text-sm">
+              You will receive approximately{" "}
+              <span className="font-bold text-[#E8F6EF] text-lg">
+                {formattedAmountOut && !isNaN(Number(formattedAmountOut))
+                  ? Number(formattedAmountOut).toFixed(6)
+                  : "—"}{" "}
+                {buyToken.symbol}
+              </span>
+            </p>
+          </div>
         )}
 
+        {/* BOTÓN APPROVAL */}
+        {needsApproval && (
+          <button
+            onClick={handleApproval}
+            className="bg-[#00D48F] hover:bg-[#1AF7A8] text-black font-semibold rounded-3xl py-4 text-lg transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]"
+          >
+            Approve {sellToken.symbol}
+          </button>
+        )}
+  
         {/* COMPRAR */}
         <div>
-          <label className="text-sm text-lime-500 mb-1 block">Comprar</label>
-          <div className="flex items-center justify-between bg-[#1A211A] border border-lime-700 rounded-xl px-3 py-2">
+          <label className="text-sm text-[#4BD897] mb-2 block font-semibold">Comprar</label>
+          <div className="flex items-center justify-between bg-[#151A18] border border-[#1F2926] rounded-xl px-4 py-3">
             <input
-              className="bg-transparent text-lime-100 text-3xl font-bold w-28 focus:outline-none"
+              className="bg-transparent text-[#E8F6EF] text-3xl font-bold w-32 focus:outline-none placeholder-[#A5BDB4]"
               placeholder="—"
               value={
                 formattedAmountOut && !isNaN(Number(formattedAmountOut))
@@ -392,31 +644,42 @@ const result = await callSmartContract({
             />
             <TokenSelector selected={buyToken} onSelect={setBuyToken} />
           </div>
-          <p className="text-right text-xs text-lime-500 mt-1">
+          <p className="text-right text-xs text-[#A5BDB4] mt-2">
             Balance: {formatAmt(balances[buyToken.symbol]?.formatted)}
           </p>
         </div>
-
+  
         {/* BOTÓN EXECUTE SWAP */}
         <button
           onClick={executeSwap}
           disabled={!quote}
           className={`${
             quote
-              ? "bg-lime-500 hover:bg-lime-400 text-black"
-              : "bg-[#1A211A] text-lime-700 cursor-not-allowed"
-          } font-bold rounded-xl py-3 text-lg transition-colors`}
+              ? "bg-[#00FF9D] hover:bg-[#29FFB4] hover:shadow-[0_4px_20px_rgba(0,255,157,0.2)] text-black"
+              : "bg-[#151A18] text-[#A5BDB4] cursor-not-allowed border border-[#1F2926]"
+          } font-semibold rounded-3xl py-4 text-lg transition-all duration-200 shadow-[0_4px_20px_rgba(0,255,157,0.1)]`}
         >
           {quote ? "Execute Swap" : "Get quote first"}
         </button>
-
+  
         {/* ERRORES */}
         {error && (
-          <p className="text-red-400 text-sm mt-2 bg-[#1A211A] border border-red-500 rounded-md px-3 py-2">
-            ❌ {error}
-          </p>
+          <div className="bg-[#2D1B1B] border border-red-500 rounded-xl px-4 py-3">
+            <p className="text-red-400 text-sm">
+              ❌ {error}
+            </p>
+          </div>
         )}
       </div>
+  
+      {/* 🔹 Drawer lateral (panel desplegable) */}
+      <WalletDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        balances={balances}
+        onDeposit={handleDeposit}
+        onWithdraw={handleWithdraw}
+      />
     </main>
   );
-}
+}  
